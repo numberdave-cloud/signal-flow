@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Flow — Patching System</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=DM+Mono:wght@400;500&family=Cormorant+Garamond:ital,wght@0,500;1,400&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #1a0a0a;
+  --surface: #1e0c0c;
+  --surface2: #2a1010;
+  --surface3: #341414;
+  --panel-bg: #0d0808;
+  --panel-face: #1a0f0f;
+  --accent: #8B1A1A;
+  --accent-light: #c0392b;
+  --gold: #c9a84c;
+  --gold-dim: #7a6030;
+  --text: #f0e6d3;
+  --text-muted: #8a7060;
+  --border: rgba(139,26,26,0.3);
+  --radius: 10px;
+
+  /* Port colours */
+  --audio-color: #e8a030;
+  --midi-color: #3a9ad9;
+  --thru-color: #7a6ab0;
+
+  /* Cable palette */
+  --cable-1: #e84040;
+  --cable-2: #40c070;
+  --cable-3: #4090e8;
+  --cable-4: #e0a020;
+  --cable-5: #c040c0;
+  --cable-6: #40c0c0;
+  --cable-7: #e06030;
+  --cable-8: #80c020;
+}
+
+body {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(139,26,26,0.15) 0%, transparent 65%),
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.008) 2px, rgba(255,255,255,0.008) 4px);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 1.5rem 1rem;
+  user-select: none;
+}
+
+.widget {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* ── Header ── */
+.header {
+  text-align: center;
+  border-bottom: 0.5px solid var(--border);
+  padding-bottom: 0.75rem;
+}
+.header-title { font-size: 24px; font-weight: 500; letter-spacing: 0.02em; }
+.header-sub { font-size: 13px; font-style: italic; color: var(--text-muted); margin-top: 3px; }
+
+/* ── Notepad diagram ── */
+.notepad {
+  background: #f5f0e0;
+  border-radius: 4px;
+  padding: 1rem 1.25rem 1.25rem;
+  position: relative;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.1);
+  overflow: hidden;
+}
+.notepad::before {
+  /* red margin line */
+  content: '';
+  position: absolute;
+  left: 48px; top: 0; bottom: 0;
+  width: 1px;
+  background: rgba(200,80,80,0.5);
+}
+.notepad-lines {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 27px,
+    rgba(100,140,200,0.25) 27px,
+    rgba(100,140,200,0.25) 28px
+  );
+  background-position: 0 36px;
+}
+.notepad-rings {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 18px;
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  padding-top: 4px;
+}
+.ring {
+  width: 14px; height: 10px;
+  border: 2px solid #aaa;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  border-bottom: none;
+  background: transparent;
+}
+.notepad-content {
+  position: relative;
+  z-index: 1;
+  padding-top: 8px;
+}
+.notepad-title {
+  font-family: 'Caveat', cursive;
+  font-size: 20px;
+  font-weight: 700;
+  color: #2a1a0a;
+  text-align: center;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1.5px solid rgba(200,80,80,0.4);
+}
+
+.sketch-svg {
+  width: 100%;
+  display: block;
+}
+
+/* ── Status bar ── */
+.status-bar {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: color 0.3s, border-color 0.3s;
+}
+.status-bar.active { color: var(--gold); border-color: var(--gold-dim); }
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--surface3);
+  flex-shrink: 0;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.status-bar.active .status-dot {
+  background: var(--gold);
+  box-shadow: 0 0 6px var(--gold);
+}
+
+/* ── Patch bay ── */
+.patchbay {
+  background: var(--panel-bg);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  position: relative;
+  overflow: hidden;
+}
+.patchbay::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-light), transparent);
+  opacity: 0.3;
+}
+
+.cable-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+  overflow: visible;
+}
+
+.devices-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  position: relative;
+  z-index: 2;
+}
+
+/* ── Device panel ── */
+.device {
+  background: var(--panel-face);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 6px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+.device-name {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.3;
+}
+.device-brand {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text);
+  text-align: center;
+}
+
+/* Screw details */
+.device::before, .device::after {
+  content: '✕';
+  position: absolute;
+  font-size: 7px;
+  color: rgba(255,255,255,0.12);
+  line-height: 1;
+}
+.device::before { top: 5px; left: 6px; }
+.device::after  { top: 5px; right: 6px; }
+
+.ports-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ports-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ports-group-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.2);
+  text-align: center;
+  padding: 2px 0;
+  border-top: 0.5px solid rgba(255,255,255,0.06);
+}
+.ports-row {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Port jack ── */
+.port {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: crosshair;
+}
+.port-jack {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.15);
+  background: #0a0505;
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.port-jack::after {
+  content: '';
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.06);
+}
+.port:hover .port-jack {
+  border-color: rgba(255,255,255,0.4);
+}
+.port.audio-out .port-jack  { border-color: rgba(232,160,48,0.5); }
+.port.audio-in .port-jack   { border-color: rgba(232,160,48,0.3); }
+.port.midi-out .port-jack   { border-color: rgba(58,154,217,0.5); }
+.port.midi-in .port-jack    { border-color: rgba(58,154,217,0.3); }
+.port.midi-thru .port-jack  { border-color: rgba(122,106,176,0.4); }
+
+.port.connected .port-jack  { box-shadow: 0 0 8px currentColor; }
+.port.audio-out.connected .port-jack  { box-shadow: 0 0 8px var(--audio-color); border-color: var(--audio-color); }
+.port.audio-in.connected .port-jack   { box-shadow: 0 0 8px var(--audio-color); border-color: var(--audio-color); }
+.port.midi-out.connected .port-jack   { box-shadow: 0 0 8px var(--midi-color); border-color: var(--midi-color); }
+.port.midi-in.connected .port-jack    { box-shadow: 0 0 8px var(--midi-color); border-color: var(--midi-color); }
+.port.midi-thru.connected .port-jack  { box-shadow: 0 0 8px var(--thru-color); border-color: var(--thru-color); }
+
+/* Signal active glow */
+.port.signal-active .port-jack {
+  animation: portGlow 1.2s ease-in-out infinite alternate;
+}
+@keyframes portGlow {
+  from { box-shadow: 0 0 6px var(--gold); }
+  to   { box-shadow: 0 0 18px var(--gold), 0 0 30px rgba(201,168,76,0.3); }
+}
+
+.port-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 7px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* Hover when dragging */
+.port.drag-target .port-jack {
+  border-color: white !important;
+  box-shadow: 0 0 12px white !important;
+}
+
+/* ── Hint strip ── */
+.hint-strip {
+  text-align: center;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 6px 0 2px;
+  letter-spacing: 0.04em;
+}
+
+/* ── Legend ── */
+.legend {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding: 6px 0 2px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.legend-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 2px solid;
+}
+.legend-dot.audio { border-color: var(--audio-color); }
+.legend-dot.midi  { border-color: var(--midi-color); }
+.legend-dot.thru  { border-color: var(--thru-color); }
+
+/* ── Connections list ── */
+.connections-list {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  min-height: 36px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.conn-tag {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  border: 0.5px solid rgba(255,255,255,0.1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.conn-tag:hover { opacity: 0.7; }
+.conn-tag .conn-x { font-size: 9px; opacity: 0.7; }
+.conn-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+</style>
+</head>
+<body>
+<div class="widget">
+
+  <div class="header">
+    <div class="header-title">Signal Flow Patcher</div>
+    <div class="header-sub">Connect devices by dragging from port to port</div>
+  </div>
+
+  <!-- Notepad sketch diagram -->
+  <div class="notepad">
+    <div class="notepad-rings">
+      <div class="ring"></div><div class="ring"></div><div class="ring"></div>
+      <div class="ring"></div><div class="ring"></div><div class="ring"></div>
+      <div class="ring"></div><div class="ring"></div><div class="ring"></div>
+    </div>
+    <div class="notepad-lines"></div>
+    <div class="notepad-content">
+      <div class="notepad-title">Studio Setup — Birds Eye View</div>
+      <svg class="sketch-svg" viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="sketch">
+            <feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="4" result="noise"/>
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.2" xChannelSelector="R" yChannelSelector="G"/>
+          </filter>
+          <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#2a1a0a" opacity="0.7"/>
+          </marker>
+          <marker id="arrow-midi" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#3a6a9a" opacity="0.8"/>
+          </marker>
+          <marker id="arrow-audio" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#8a6010" opacity="0.8"/>
+          </marker>
+        </defs>
+
+        <!-- Desk surface hint -->
+        <rect x="10" y="30" width="660" height="155" rx="8" fill="rgba(180,160,100,0.08)" stroke="rgba(100,80,40,0.2)" stroke-width="1" filter="url(#sketch)"/>
+
+        <!-- Audio Interface (centre-top) -->
+        <g filter="url(#sketch)">
+          <rect x="250" y="38" width="180" height="55" rx="5" fill="rgba(60,40,20,0.12)" stroke="#3a2a10" stroke-width="1.5"/>
+          <text x="340" y="55" text-anchor="middle" font-family="Caveat,cursive" font-size="13" fill="#2a1a0a" font-weight="700">Audio Interface</text>
+          <text x="340" y="70" text-anchor="middle" font-family="Caveat,cursive" font-size="10" fill="#4a3a20">MIDI In/Out · Audio In 1/2</text>
+          <!-- ports sketch -->
+          <circle cx="275" cy="83" r="5" fill="none" stroke="#8a6010" stroke-width="1.5"/>
+          <circle cx="295" cy="83" r="5" fill="none" stroke="#8a6010" stroke-width="1.5"/>
+          <circle cx="355" cy="83" r="5" fill="none" stroke="#3a6a9a" stroke-width="1.5"/>
+          <circle cx="375" cy="83" r="5" fill="none" stroke="#3a6a9a" stroke-width="1.5"/>
+          <text x="285" y="78" text-anchor="middle" font-family="Caveat,cursive" font-size="8" fill="#6a5020">Audio In</text>
+          <text x="365" y="78" text-anchor="middle" font-family="Caveat,cursive" font-size="8" fill="#2a5a8a">MIDI</text>
+        </g>
+
+        <!-- Synth (left) -->
+        <g filter="url(#sketch)">
+          <rect x="30" y="100" width="155" height="70" rx="5" fill="rgba(60,40,20,0.12)" stroke="#3a2a10" stroke-width="1.5"/>
+          <text x="107" y="120" text-anchor="middle" font-family="Caveat,cursive" font-size="13" fill="#2a1a0a" font-weight="700">Synthesiser</text>
+          <text x="107" y="136" text-anchor="middle" font-family="Caveat,cursive" font-size="10" fill="#4a3a20">Audio Out · MIDI In/Out/Thru</text>
+          <circle cx="65"  cy="158" r="5" fill="none" stroke="#8a6010" stroke-width="1.5"/>
+          <circle cx="100" cy="158" r="5" fill="none" stroke="#3a6a9a" stroke-width="1.5"/>
+          <circle cx="120" cy="158" r="5" fill="none" stroke="#3a6a9a" stroke-width="1.5"/>
+          <circle cx="140" cy="158" r="5" fill="none" stroke="#6a50a0" stroke-width="1.5"/>
+          <text x="65"  y="153" text-anchor="middle" font-family="Caveat,cursive" font-size="7" fill="#6a5020">Out</text>
+          <text x="110" y="153" text-anchor="middle" font-family="Caveat,cursive" font-size="7" fill="#2a5a8a">In Out</text>
+          <text x="140" y="153" text-anchor="middle" font-family="Caveat,cursive" font-size="7" fill="#5a4a80">Thru</text>
+        </g>
+
+        <!-- Drum Machine (right) -->
+        <g filter="url(#sketch)">
+          <rect x="495" y="100" width="165" height="70" rx="5" fill="rgba(60,40,20,0.12)" stroke="#3a2a10" stroke-width="1.5"/>
+          <text x="577" y="120" text-anchor="middle" font-family="Caveat,cursive" font-size="13" fill="#2a1a0a" font-weight="700">Drum Machine</text>
+          <text x="577" y="136" text-anchor="middle" font-family="Caveat,cursive" font-size="10" fill="#4a3a20">Audio Out 1/2 · MIDI In/Out</text>
+          <circle cx="530" cy="158" r="5" fill="none" stroke="#8a6010" stroke-width="1.5"/>
+          <circle cx="550" cy="158" r="5" fill="none" stroke="#8a6010" stroke-width="1.5"/>
+          <circle cx="600" cy="158" r="5" fill="none" stroke="#3a6a9a" stroke-width="1.5"/>
+          <circle cx="620" cy="158" r="5" fill="none" stroke="#3a6a9a" stroke-width="1.5"/>
+          <text x="540" y="153" text-anchor="middle" font-family="Caveat,cursive" font-size="7" fill="#6a5020">Out 1 Out 2</text>
+          <text x="610" y="153" text-anchor="middle" font-family="Caveat,cursive" font-size="7" fill="#2a5a8a">In Out</text>
+        </g>
+
+        <!-- Signal flow arrows — audio (orange) -->
+        <!-- Synth audio out → Interface audio in 1 -->
+        <path d="M65,152 C65,110 200,95 270,88" stroke="#8a6010" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrow-audio)" opacity="0.7" filter="url(#sketch)"/>
+        <!-- Drum audio out → Interface audio in 2 -->
+        <path d="M540,152 C540,110 450,95 405,88" stroke="#8a6010" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrow-audio)" opacity="0.7" filter="url(#sketch)"/>
+
+        <!-- MIDI arrows (blue) -->
+        <!-- Interface MIDI out → Synth MIDI in -->
+        <path d="M355,88 C355,70 80,70 100,152" stroke="#3a6a9a" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrow-midi)" opacity="0.7" filter="url(#sketch)"/>
+        <!-- Interface MIDI out → Drum MIDI in -->
+        <path d="M375,88 C375,70 620,70 600,152" stroke="#3a6a9a" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrow-midi)" opacity="0.7" filter="url(#sketch)"/>
+
+        <!-- Labels -->
+        <text x="150" y="68" font-family="Caveat,cursive" font-size="10" fill="#8a6010" opacity="0.8">Audio →</text>
+        <text x="460" y="68" font-family="Caveat,cursive" font-size="10" fill="#8a6010" opacity="0.8">← Audio</text>
+        <text x="165" y="48" font-family="Caveat,cursive" font-size="10" fill="#3a6a9a" opacity="0.8">← MIDI</text>
+        <text x="490" y="48" font-family="Caveat,cursive" font-size="10" fill="#3a6a9a" opacity="0.8">MIDI →</text>
+
+        <!-- Desk items for flavour -->
+        <g opacity="0.25" filter="url(#sketch)">
+          <!-- Coffee cup -->
+          <ellipse cx="630" cy="50" rx="12" ry="8" fill="none" stroke="#3a2a10" stroke-width="1"/>
+          <path d="M618,50 L618,62 Q630,68 642,62 L642,50" fill="none" stroke="#3a2a10" stroke-width="1"/>
+          <path d="M642,54 Q650,54 650,58 Q650,62 642,62" fill="none" stroke="#3a2a10" stroke-width="1"/>
+          <text x="630" y="48" text-anchor="middle" font-family="Caveat,cursive" font-size="8" fill="#3a2a10">coffee</text>
+          <!-- Pencil -->
+          <rect x="30" y="168" width="60" height="5" rx="1" fill="none" stroke="#3a2a10" stroke-width="1" transform="rotate(-15,60,170)"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar" id="statusBar">
+    <div class="status-dot"></div>
+    <span id="statusText">No connections — drag from a port to another port to patch</span>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot audio"></div>Audio</div>
+    <div class="legend-item"><div class="legend-dot midi"></div>MIDI In/Out</div>
+    <div class="legend-item"><div class="legend-dot thru"></div>MIDI Thru</div>
+  </div>
+
+  <!-- Patch bay -->
+  <div class="patchbay" id="patchbay">
+    <svg class="cable-svg" id="cableSvg"></svg>
+
+    <div class="devices-row">
+
+      <!-- AUDIO INTERFACE -->
+      <div class="device" id="dev-interface">
+        <div class="device-brand">Focusrite</div>
+        <div class="device-name">Audio Interface<br>— rear panel —</div>
+        <div class="ports-section">
+          <div class="ports-group">
+            <div class="ports-group-label">Audio Inputs</div>
+            <div class="ports-row">
+              <div class="port audio-in" data-port="if-ain-1" data-device="interface" data-type="audio-in" data-label="In 1">
+                <div class="port-jack"></div>
+                <div class="port-label">In 1</div>
+              </div>
+              <div class="port audio-in" data-port="if-ain-2" data-device="interface" data-type="audio-in" data-label="In 2">
+                <div class="port-jack"></div>
+                <div class="port-label">In 2</div>
+              </div>
+            </div>
+          </div>
+          <div class="ports-group">
+            <div class="ports-group-label">MIDI</div>
+            <div class="ports-row">
+              <div class="port midi-in" data-port="if-min" data-device="interface" data-type="midi-in" data-label="MIDI In">
+                <div class="port-jack"></div>
+                <div class="port-label">MIDI In</div>
+              </div>
+              <div class="port midi-out" data-port="if-mout" data-device="interface" data-type="midi-out" data-label="MIDI Out">
+                <div class="port-jack"></div>
+                <div class="port-label">MIDI Out</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SYNTHESISER -->
+      <div class="device" id="dev-synth">
+        <div class="device-brand">Moog</div>
+        <div class="device-name">Synthesiser<br>— rear panel —</div>
+        <div class="ports-section">
+          <div class="ports-group">
+            <div class="ports-group-label">Audio</div>
+            <div class="ports-row">
+              <div class="port audio-out" data-port="sy-aout" data-device="synth" data-type="audio-out" data-label="Audio Out">
+                <div class="port-jack"></div>
+                <div class="port-label">Out</div>
+              </div>
+            </div>
+          </div>
+          <div class="ports-group">
+            <div class="ports-group-label">MIDI</div>
+            <div class="ports-row">
+              <div class="port midi-in" data-port="sy-min" data-device="synth" data-type="midi-in" data-label="MIDI In">
+                <div class="port-jack"></div>
+                <div class="port-label">In</div>
+              </div>
+              <div class="port midi-out" data-port="sy-mout" data-device="synth" data-type="midi-out" data-label="MIDI Out">
+                <div class="port-jack"></div>
+                <div class="port-label">Out</div>
+              </div>
+              <div class="port midi-thru" data-port="sy-mthru" data-device="synth" data-type="midi-thru" data-label="MIDI Thru">
+                <div class="port-jack"></div>
+                <div class="port-label">Thru</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DRUM MACHINE -->
+      <div class="device" id="dev-drums">
+        <div class="device-brand">Roland</div>
+        <div class="device-name">Drum Machine<br>— rear panel —</div>
+        <div class="ports-section">
+          <div class="ports-group">
+            <div class="ports-group-label">Audio Outputs</div>
+            <div class="ports-row">
+              <div class="port audio-out" data-port="dr-aout-1" data-device="drums" data-type="audio-out" data-label="Out 1">
+                <div class="port-jack"></div>
+                <div class="port-label">Out 1</div>
+              </div>
+              <div class="port audio-out" data-port="dr-aout-2" data-device="drums" data-type="audio-out" data-label="Out 2">
+                <div class="port-jack"></div>
+                <div class="port-label">Out 2</div>
+              </div>
+            </div>
+          </div>
+          <div class="ports-group">
+            <div class="ports-group-label">MIDI</div>
+            <div class="ports-row">
+              <div class="port midi-in" data-port="dr-min" data-device="drums" data-type="midi-in" data-label="MIDI In">
+                <div class="port-jack"></div>
+                <div class="port-label">In</div>
+              </div>
+              <div class="port midi-out" data-port="dr-mout" data-device="drums" data-type="midi-out" data-label="MIDI Out">
+                <div class="port-jack"></div>
+                <div class="port-label">Out</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /devices-row -->
+
+    <div class="hint-strip">click &amp; drag from any port · click a cable tag below to remove it</div>
+  </div><!-- /patchbay -->
+
+  <!-- Active connections -->
+  <div class="connections-list" id="connectionsList">
+    <span class="conn-label">No cables patched</span>
+  </div>
+
+</div><!-- /widget -->
+
+<script>
+// ── Colour palette for cables ──────────────────────────────────────────────
+const CABLE_COLORS = [
+  '#e84040','#40c070','#4090e8','#e0a020',
+  '#c040c0','#40c0c0','#e06030','#80c020',
+  '#a060e0','#e04080'
+];
+let colorIndex = 0;
+function nextColor() {
+  const c = CABLE_COLORS[colorIndex % CABLE_COLORS.length];
+  colorIndex++;
+  return c;
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+const connections = []; // { id, fromPort, toPort, color, el }
+let dragging = null;    // { fromPort, fromEl, x1, y1, tempLine }
+
+// ── Audio ──────────────────────────────────────────────────────────────────
+let audioCtx = null;
+let drumTimer = null;
+let synthDrone = null;
+let drumStep = 0;
+let soundsActive = { synth: false, drums: false };
+
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+// Kick
+function playKick(time) {
+  const ctx = getCtx();
+  const o1 = ctx.createOscillator(), g1 = ctx.createGain();
+  const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+  o1.type = 'sine'; o1.frequency.setValueAtTime(180, time);
+  o1.frequency.exponentialRampToValueAtTime(40, time + 0.08);
+  g1.gain.setValueAtTime(0.9, time); g1.gain.exponentialRampToValueAtTime(0.001, time + 0.4);
+  o2.type = 'sine'; o2.frequency.setValueAtTime(800, time);
+  o2.frequency.exponentialRampToValueAtTime(60, time + 0.02);
+  g2.gain.setValueAtTime(0.5, time); g2.gain.exponentialRampToValueAtTime(0.001, time + 0.03);
+  o1.connect(g1); g1.connect(ctx.destination);
+  o2.connect(g2); g2.connect(ctx.destination);
+  o1.start(time); o1.stop(time + 0.5);
+  o2.start(time); o2.stop(time + 0.05);
+}
+
+// Snare
+function playSnare(time) {
+  const ctx = getCtx();
+  const bufSize = Math.floor(ctx.sampleRate * 0.2);
+  const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) d[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource(); noise.buffer = buf;
+  const filt = ctx.createBiquadFilter(); filt.type = 'bandpass'; filt.frequency.value = 2800; filt.Q.value = 0.5;
+  const g = ctx.createGain(); g.gain.setValueAtTime(0.7, time); g.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+  const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 200;
+  const og = ctx.createGain(); og.gain.setValueAtTime(0.4, time); og.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+  noise.connect(filt); filt.connect(g); g.connect(ctx.destination);
+  o.connect(og); og.connect(ctx.destination);
+  noise.start(time); noise.stop(time + 0.2);
+  o.start(time); o.stop(time + 0.1);
+}
+
+// Hi-hat
+function playHihat(time, open) {
+  const ctx = getCtx();
+  const dur = open ? 0.25 : 0.06;
+  const bufSize = Math.floor(ctx.sampleRate * dur);
+  const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufSize; i++) d[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource(); noise.buffer = buf;
+  const filt = ctx.createBiquadFilter(); filt.type = 'highpass'; filt.frequency.value = 8000;
+  const g = ctx.createGain(); g.gain.setValueAtTime(0.4, time); g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  noise.connect(filt); filt.connect(g); g.connect(ctx.destination);
+  noise.start(time); noise.stop(time + dur + 0.01);
+}
+
+// 4/4 drum pattern: K on 1,3 — S on 2,4 — HH every 8th
+const DRUM_PATTERN = [
+  { kick:1, hat:1 },   // 1
+  { hat:1 },           // 1+
+  { snare:1, hat:1 },  // 2
+  { hat:1 },           // 2+
+  { kick:1, hat:1 },   // 3
+  { hat:1 },           // 3+
+  { snare:1, hat:1, openhat:1 }, // 4
+  { hat:1 },           // 4+
+];
+
+function startDrums() {
+  if (drumTimer) return;
+  const ctx = getCtx();
+  let nextTime = ctx.currentTime + 0.05;
+  const stepDur = () => 60 / 120 / 2; // 120bpm 8th notes
+
+  function tick() {
+    const ctx = getCtx();
+    while (nextTime < ctx.currentTime + 0.2) {
+      const step = DRUM_PATTERN[drumStep % DRUM_PATTERN.length];
+      if (step.kick)    playKick(nextTime);
+      if (step.snare)   playSnare(nextTime);
+      if (step.hat)     playHihat(nextTime, false);
+      if (step.openhat) playHihat(nextTime, true);
+      nextTime += stepDur();
+      drumStep++;
+    }
+  }
+
+  tick();
+  drumTimer = setInterval(tick, 50);
+}
+
+function stopDrums() {
+  if (drumTimer) { clearInterval(drumTimer); drumTimer = null; }
+  drumStep = 0;
+}
+
+function startSynth() {
+  if (synthDrone) return;
+  const ctx = getCtx();
+  const o1 = ctx.createOscillator();
+  const o2 = ctx.createOscillator();
+  const o3 = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const filter = ctx.createBiquadFilter();
+
+  o1.type = 'sawtooth'; o1.frequency.value = 55;    // A1
+  o2.type = 'sawtooth'; o2.frequency.value = 55.3;
+  o3.type = 'sawtooth'; o3.frequency.value = 54.7;
+
+  filter.type = 'lowpass'; filter.frequency.value = 400; filter.Q.value = 2;
+  gain.gain.setValueAtTime(0, ctx.currentTime);
+  gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.5);
+
+  o1.connect(filter); o2.connect(filter); o3.connect(filter);
+  filter.connect(gain); gain.connect(ctx.destination);
+  o1.start(); o2.start(); o3.start();
+
+  synthDrone = { o1, o2, o3, gain };
+}
+
+function stopSynth() {
+  if (!synthDrone) return;
+  const ctx = getCtx();
+  const t = ctx.currentTime;
+  synthDrone.gain.gain.setValueAtTime(synthDrone.gain.gain.value, t);
+  synthDrone.gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  synthDrone.o1.stop(t + 0.6);
+  synthDrone.o2.stop(t + 0.6);
+  synthDrone.o3.stop(t + 0.6);
+  synthDrone = null;
+}
+
+// ── Signal logic ───────────────────────────────────────────────────────────
+function checkSignalFlow() {
+  // Synth needs: if-mout → sy-min AND sy-aout → if-ain-*
+  const synthMidi  = connections.some(c =>
+    (c.fromPort === 'if-mout' && c.toPort === 'sy-min') ||
+    (c.fromPort === 'sy-min'  && c.toPort === 'if-mout'));
+  const synthAudio = connections.some(c =>
+    (c.fromPort === 'sy-aout' && (c.toPort === 'if-ain-1' || c.toPort === 'if-ain-2')) ||
+    ((c.fromPort === 'if-ain-1' || c.fromPort === 'if-ain-2') && c.toPort === 'sy-aout'));
+
+  // Drums needs: if-mout → dr-min AND (dr-aout-1 or dr-aout-2) → if-ain-*
+  const drumMidi  = connections.some(c =>
+    (c.fromPort === 'if-mout' && c.toPort === 'dr-min') ||
+    (c.fromPort === 'dr-min'  && c.toPort === 'if-mout'));
+  const drumAudio = connections.some(c =>
+    ((c.fromPort === 'dr-aout-1' || c.fromPort === 'dr-aout-2') &&
+     (c.toPort   === 'if-ain-1'  || c.toPort   === 'if-ain-2')) ||
+    ((c.fromPort === 'if-ain-1'  || c.fromPort === 'if-ain-2') &&
+     (c.toPort   === 'dr-aout-1' || c.toPort   === 'dr-aout-2')));
+
+  const synthActive = synthMidi && synthAudio;
+  const drumActive  = drumMidi  && drumAudio;
+
+  // Start/stop synth
+  if (synthActive && !soundsActive.synth) {
+    getCtx().resume && getCtx().resume();
+    startSynth();
+    soundsActive.synth = true;
+  } else if (!synthActive && soundsActive.synth) {
+    stopSynth();
+    soundsActive.synth = false;
+  }
+
+  // Start/stop drums
+  if (drumActive && !soundsActive.drums) {
+    getCtx().resume && getCtx().resume();
+    startDrums();
+    soundsActive.drums = true;
+  } else if (!drumActive && soundsActive.drums) {
+    stopDrums();
+    soundsActive.drums = false;
+  }
+
+  // Update port glow
+  document.querySelectorAll('.port').forEach(p => p.classList.remove('signal-active'));
+  if (synthActive) {
+    ['sy-aout','sy-min','if-ain-1','if-ain-2','if-mout'].forEach(id => {
+      const el = document.querySelector(`[data-port="${id}"]`);
+      if (el) el.classList.add('signal-active');
+    });
+  }
+  if (drumActive) {
+    ['dr-aout-1','dr-aout-2','dr-min','if-ain-1','if-ain-2','if-mout'].forEach(id => {
+      const el = document.querySelector(`[data-port="${id}"]`);
+      if (el) el.classList.add('signal-active');
+    });
+  }
+
+  // Status
+  const bar = document.getElementById('statusBar');
+  const txt = document.getElementById('statusText');
+  if (synthActive && drumActive) {
+    bar.className = 'status-bar active';
+    txt.textContent = 'Signal flowing — synth drone + drum beat active';
+  } else if (synthActive) {
+    bar.className = 'status-bar active';
+    txt.textContent = 'Synth connected — drone active · connect drum machine to hear beat';
+  } else if (drumActive) {
+    bar.className = 'status-bar active';
+    txt.textContent = 'Drum machine connected — beat active · connect synth for drone';
+  } else if (connections.length > 0) {
+    bar.className = 'status-bar';
+    txt.textContent = 'Cables patched but signal path incomplete — check MIDI and Audio connections';
+  } else {
+    bar.className = 'status-bar';
+    txt.textContent = 'No connections — drag from a port to another port to patch';
+  }
+}
+
+// ── Port position helper ───────────────────────────────────────────────────
+function getPortCenter(portEl) {
+  const bay = document.getElementById('patchbay');
+  const bayRect = bay.getBoundingClientRect();
+  const jack = portEl.querySelector('.port-jack');
+  const jackRect = jack.getBoundingClientRect();
+  return {
+    x: jackRect.left + jackRect.width / 2 - bayRect.left,
+    y: jackRect.top  + jackRect.height / 2 - bayRect.top,
+  };
+}
+
+// ── Cable drawing ──────────────────────────────────────────────────────────
+function makeCablePath(x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  const sag = Math.min(60, dist * 0.35);
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2 + sag;
+  return `M ${x1} ${y1} Q ${midX} ${midY} ${x2} ${y2}`;
+}
+
+function drawTempCable(x1, y1, x2, y2, color) {
+  const svg = document.getElementById('cableSvg');
+  let line = document.getElementById('temp-cable');
+  if (!line) {
+    line = document.createElementNS('http://www.w3.org/2000/svg','path');
+    line.id = 'temp-cable';
+    line.setAttribute('stroke-linecap','round');
+    line.setAttribute('fill','none');
+    svg.appendChild(line);
+  }
+  line.setAttribute('d', makeCablePath(x1, y1, x2, y2));
+  line.setAttribute('stroke', color || '#fff');
+  line.setAttribute('stroke-width', '3');
+  line.setAttribute('opacity', '0.6');
+  line.setAttribute('stroke-dasharray', '6,4');
+}
+
+function removeTempCable() {
+  const el = document.getElementById('temp-cable');
+  if (el) el.remove();
+}
+
+function drawConnection(conn) {
+  const svg = document.getElementById('cableSvg');
+  const fromEl = document.querySelector(`[data-port="${conn.fromPort}"]`);
+  const toEl   = document.querySelector(`[data-port="${conn.toPort}"]`);
+  if (!fromEl || !toEl) return;
+
+  const p1 = getPortCenter(fromEl);
+  const p2 = getPortCenter(toEl);
+
+  // Shadow
+  const shadow = document.createElementNS('http://www.w3.org/2000/svg','path');
+  shadow.setAttribute('d', makeCablePath(p1.x+2, p1.y+3, p2.x+2, p2.y+3));
+  shadow.setAttribute('stroke', 'rgba(0,0,0,0.4)');
+  shadow.setAttribute('stroke-width', '5');
+  shadow.setAttribute('stroke-linecap', 'round');
+  shadow.setAttribute('fill', 'none');
+  shadow.setAttribute('data-conn-shadow', conn.id);
+
+  // Cable
+  const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d', makeCablePath(p1.x, p1.y, p2.x, p2.y));
+  path.setAttribute('stroke', conn.color);
+  path.setAttribute('stroke-width', '4');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('data-conn', conn.id);
+
+  // Highlight stripe
+  const shine = document.createElementNS('http://www.w3.org/2000/svg','path');
+  shine.setAttribute('d', makeCablePath(p1.x, p1.y, p2.x, p2.y));
+  shine.setAttribute('stroke', 'rgba(255,255,255,0.2)');
+  shine.setAttribute('stroke-width', '1.5');
+  shine.setAttribute('stroke-linecap', 'round');
+  shine.setAttribute('fill', 'none');
+  shine.setAttribute('data-conn-shine', conn.id);
+
+  svg.appendChild(shadow);
+  svg.appendChild(path);
+  svg.appendChild(shine);
+  conn.el = path;
+}
+
+function removeConnectionEl(id) {
+  ['','shadow','shine'].forEach(suffix => {
+    const attr = suffix ? `data-conn-${suffix}` : 'data-conn';
+    const el = document.querySelector(`[${attr}="${id}"]`);
+    if (el) el.remove();
+  });
+}
+
+// ── Connection management ──────────────────────────────────────────────────
+let connIdCounter = 0;
+
+function canConnect(portA, portB) {
+  const a = portA.dataset.type;
+  const b = portB.dataset.type;
+  // Can't connect same port to itself
+  if (portA === portB) return false;
+  // Can't connect same device to itself
+  if (portA.dataset.device === portB.dataset.device) return false;
+  // Audio: out→in or in→out
+  const audioTypes = ['audio-out','audio-in'];
+  const midiTypes  = ['midi-out','midi-in','midi-thru'];
+  if (audioTypes.includes(a) && audioTypes.includes(b)) {
+    return (a === 'audio-out' && b === 'audio-in') || (a === 'audio-in' && b === 'audio-out');
+  }
+  // MIDI: out→in, out→thru, in→out (allow flexible)
+  if (midiTypes.includes(a) && midiTypes.includes(b)) {
+    return true; // allow any MIDI port to MIDI port for exploration
+  }
+  return false;
+}
+
+function addConnection(fromPortEl, toPortEl) {
+  const id = 'conn-' + (++connIdCounter);
+  const color = nextColor();
+  const conn = {
+    id,
+    fromPort: fromPortEl.dataset.port,
+    toPort:   toPortEl.dataset.port,
+    fromLabel: `${fromPortEl.dataset.device} ${fromPortEl.dataset.label}`,
+    toLabel:   `${toPortEl.dataset.device} ${toPortEl.dataset.label}`,
+    color,
+  };
+  connections.push(conn);
+  drawConnection(conn);
+  fromPortEl.classList.add('connected');
+  toPortEl.classList.add('connected');
+  updateConnectionsList();
+  checkSignalFlow();
+}
+
+function removeConnection(id) {
+  const idx = connections.findIndex(c => c.id === id);
+  if (idx < 0) return;
+  const conn = connections[idx];
+  connections.splice(idx, 1);
+  removeConnectionEl(id);
+
+  // Update port connected state
+  ['fromPort','toPort'].forEach(key => {
+    const portId = conn[key];
+    const stillConnected = connections.some(c => c.fromPort === portId || c.toPort === portId);
+    const el = document.querySelector(`[data-port="${portId}"]`);
+    if (el && !stillConnected) el.classList.remove('connected');
+  });
+
+  updateConnectionsList();
+  checkSignalFlow();
+}
+
+function updateConnectionsList() {
+  const list = document.getElementById('connectionsList');
+  list.innerHTML = '';
+  if (connections.length === 0) {
+    const lbl = document.createElement('span');
+    lbl.className = 'conn-label';
+    lbl.textContent = 'No cables patched';
+    list.appendChild(lbl);
+    return;
+  }
+  connections.forEach(conn => {
+    const tag = document.createElement('div');
+    tag.className = 'conn-tag';
+    tag.style.background = conn.color + '22';
+    tag.style.borderColor = conn.color + '66';
+    tag.innerHTML = `<span style="color:${conn.color}">●</span> ${conn.fromLabel} → ${conn.toLabel} <span class="conn-x">✕</span>`;
+    tag.addEventListener('click', () => removeConnection(conn.id));
+    list.appendChild(tag);
+  });
+}
+
+// ── Drag handling ──────────────────────────────────────────────────────────
+let dragColor = null;
+
+function getPatchbayPos(e) {
+  const bay = document.getElementById('patchbay');
+  const rect = bay.getBoundingClientRect();
+  const cx = e.touches ? e.touches[0].clientX : e.clientX;
+  const cy = e.touches ? e.touches[0].clientY : e.clientY;
+  return { x: cx - rect.left, y: cy - rect.top };
+}
+
+document.querySelectorAll('.port').forEach(port => {
+  port.addEventListener('mousedown', startDrag);
+  port.addEventListener('touchstart', startDrag, { passive: false });
+});
+
+function startDrag(e) {
+  e.preventDefault();
+  const port = e.currentTarget;
+  const pos = getPortCenter(port);
+  dragColor = nextColor();
+  dragging = { fromPort: port, x1: pos.x, y1: pos.y };
+  colorIndex--; // don't consume until connection is made
+}
+
+window.addEventListener('mousemove', onDragMove);
+window.addEventListener('touchmove', onDragMove, { passive: false });
+
+function onDragMove(e) {
+  if (!dragging) return;
+  e.preventDefault();
+  const pos = getPatchbayPos(e);
+
+  // Highlight valid targets
+  document.querySelectorAll('.port').forEach(p => {
+    p.classList.remove('drag-target');
+    if (p !== dragging.fromPort && canConnect(dragging.fromPort, p)) {
+      // check proximity
+      const pc = getPortCenter(p);
+      const dist = Math.sqrt((pc.x - pos.x)**2 + (pc.y - pos.y)**2);
+      if (dist < 30) p.classList.add('drag-target');
+    }
+  });
+
+  drawTempCable(dragging.x1, dragging.y1, pos.x, pos.y, dragColor || '#fff');
+}
+
+window.addEventListener('mouseup', endDrag);
+window.addEventListener('touchend', endDrag);
+
+function endDrag(e) {
+  if (!dragging) return;
+  document.querySelectorAll('.port').forEach(p => p.classList.remove('drag-target'));
+  removeTempCable();
+
+  // Find if we released on a valid port
+  const pos = e.changedTouches
+    ? { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }
+    : { x: e.clientX, y: e.clientY };
+
+  let targetPort = null;
+  document.querySelectorAll('.port').forEach(p => {
+    if (p === dragging.fromPort) return;
+    const jack = p.querySelector('.port-jack');
+    const rect = jack.getBoundingClientRect();
+    if (pos.x >= rect.left - 10 && pos.x <= rect.right + 10 &&
+        pos.y >= rect.top  - 10 && pos.y <= rect.bottom + 10) {
+      targetPort = p;
+    }
+  });
+
+  if (targetPort && canConnect(dragging.fromPort, targetPort)) {
+    // Check not already connected
+    const already = connections.some(c =>
+      (c.fromPort === dragging.fromPort.dataset.port && c.toPort === targetPort.dataset.port) ||
+      (c.fromPort === targetPort.dataset.port && c.toPort === dragging.fromPort.dataset.port));
+    if (!already) {
+      colorIndex++; // consume colour
+      addConnection(dragging.fromPort, targetPort);
+    }
+  }
+
+  dragging = null;
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+checkSignalFlow();
+</script>
+</body>
+</html>
